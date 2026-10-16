@@ -177,7 +177,22 @@
         },
         {
           "action": "shell",
+          "resource": "ls",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "ls *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "pwd",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "pwd *",
           "effect": "allow"
         },
         {
@@ -202,11 +217,6 @@
         },
         {
           "action": "shell",
-          "resource": "pwd *",
-          "effect": "allow"
-        },
-        {
-          "action": "shell",
           "resource": "file *",
           "effect": "allow"
         },
@@ -217,7 +227,17 @@
         },
         {
           "action": "shell",
+          "resource": "git status",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "git status *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git diff",
           "effect": "allow"
         },
         {
@@ -227,7 +247,17 @@
         },
         {
           "action": "shell",
+          "resource": "git log",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "git log *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git show",
           "effect": "allow"
         },
         {
@@ -243,6 +273,11 @@
         {
           "action": "shell",
           "resource": "* /*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*</*",
           "effect": "deny"
         },
         {
@@ -267,12 +302,142 @@
         },
         {
           "action": "shell",
-          "resource": "*../*",
+          "resource": "*..*",
           "effect": "deny"
         },
         {
           "action": "shell",
-          "resource": "* ..",
+          "resource": "*;*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*&&*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*&*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*|*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*`*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*$(*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*<(*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*\n*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rm *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "mv *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "cp *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "tee *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "dd *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "chmod *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "chown *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "mkdir *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rmdir *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "ln *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "truncate *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "install *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "python *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "python3 *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "node *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "bash *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "sh *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "perl *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "ruby *",
           "effect": "deny"
         },
         {
@@ -366,7 +531,22 @@
         },
         {
           "action": "shell",
+          "resource": "ls",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "ls *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "pwd",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "pwd *",
           "effect": "allow"
         },
         {
@@ -391,11 +571,6 @@
         },
         {
           "action": "shell",
-          "resource": "pwd *",
-          "effect": "allow"
-        },
-        {
-          "action": "shell",
           "resource": "file *",
           "effect": "allow"
         },
@@ -406,7 +581,17 @@
         },
         {
           "action": "shell",
+          "resource": "git status",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "git status *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git diff",
           "effect": "allow"
         },
         {
@@ -416,7 +601,17 @@
         },
         {
           "action": "shell",
+          "resource": "git log",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "git log *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git show",
           "effect": "allow"
         },
         {
@@ -432,6 +627,11 @@
         {
           "action": "shell",
           "resource": "* /*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*</*",
           "effect": "deny"
         },
         {
@@ -456,12 +656,142 @@
         },
         {
           "action": "shell",
-          "resource": "*../*",
+          "resource": "*..*",
           "effect": "deny"
         },
         {
           "action": "shell",
-          "resource": "* ..",
+          "resource": "*;*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*&&*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*&*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*|*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*`*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*$(*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*<(*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*\n*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rm *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "mv *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "cp *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "tee *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "dd *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "chmod *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "chown *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "mkdir *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rmdir *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "ln *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "truncate *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "install *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "python *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "python3 *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "node *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "bash *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "sh *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "perl *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "ruby *",
           "effect": "deny"
         },
         {
@@ -532,7 +862,22 @@
         },
         {
           "action": "shell",
+          "resource": "ls",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "ls *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "pwd",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "pwd *",
           "effect": "allow"
         },
         {
@@ -557,11 +902,6 @@
         },
         {
           "action": "shell",
-          "resource": "pwd *",
-          "effect": "allow"
-        },
-        {
-          "action": "shell",
           "resource": "file *",
           "effect": "allow"
         },
@@ -572,7 +912,17 @@
         },
         {
           "action": "shell",
+          "resource": "git status",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "git status *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git diff",
           "effect": "allow"
         },
         {
@@ -582,7 +932,17 @@
         },
         {
           "action": "shell",
+          "resource": "git log",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
           "resource": "git log *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git show",
           "effect": "allow"
         },
         {
@@ -598,6 +958,11 @@
         {
           "action": "shell",
           "resource": "* /*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*</*",
           "effect": "deny"
         },
         {
@@ -622,12 +987,142 @@
         },
         {
           "action": "shell",
-          "resource": "*../*",
+          "resource": "*..*",
           "effect": "deny"
         },
         {
           "action": "shell",
-          "resource": "* ..",
+          "resource": "*;*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*&&*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*&*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*|*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*`*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*$(*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*<(*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*\n*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rm *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "mv *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "cp *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "tee *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "dd *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "chmod *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "chown *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "mkdir *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rmdir *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "ln *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "truncate *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "install *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "python *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "python3 *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "node *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "bash *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "sh *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "perl *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "ruby *",
           "effect": "deny"
         },
         {
