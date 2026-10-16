@@ -1,0 +1,19 @@
+{
+  "name": "agent-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenCode config, global rules, local-first skills, and the Beeper MCP bridge in one repo.",
+  "type": "module",
+  "bin": {
+    "beeper-mcp-shim": "src/beeper-mcp-shim.mjs"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "check": "node --check src/beeper-mcp-shim.mjs",
+    "test": "node --test test/*.test.mjs",
+    "status": "node src/beeper-mcp-shim.mjs status"
+  },
+  "license": "MIT"
+}

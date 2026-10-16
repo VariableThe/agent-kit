@@ -1,0 +1,18 @@
+{
+  "mcp": {
+    "servers": {
+      "beeper": {
+        "type": "local",
+        "command": [
+          "ssh",
+          "-o",
+          "BatchMode=yes",
+          "-o",
+          "ConnectTimeout=10",
+          "asus-zorin",
+          "PATH=$HOME/.local/bin:$PATH exec $HOME/.local/bin/beeper-mcp-shim"
+        ]
+      }
+    }
+  }
+}
