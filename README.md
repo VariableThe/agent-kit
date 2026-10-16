@@ -30,7 +30,12 @@ agent-kit/
 │   └── beeper-client.json  # adds only mcp.servers.beeper (ssh to a Beeper host)
 ├── skills/                 # 12 skills, each SKILL.md + self-contained scripts
 ├── src/beeper-mcp-shim.mjs # the Beeper MCP bridge (Node ≥ 22.5, zero deps)
-├── test/                   # unit tests for the bridge transport
+├── test/                   # unit tests (bridge transport, tailshare rewrite)
+├── plugins/
+│   └── tailshare           # OpenCode plugin (-> ~/.config/opencode/plugins/tailshare)
+│       ├── index.ts        # V2 plugin entry (system-hint + tool-result rewrite)
+│       ├── rewrite.mjs     # pure helpers (unit-tested, no opencode imports)
+│       └── package.json    # plugin manifest (host provides @opencode/plugin)
 ├── scripts/
 │   ├── check-secrets.sh
 │   └── tailshare           # tailnet link helper (-> ~/.local/bin/tailshare)
@@ -64,6 +69,7 @@ Role resolution is `--role` flag > `~/.config/agent-kit/host.json` > `plain`.
 | `skills/<name>` | `~/.config/opencode/skills/<name>` and `~/.agents/skills/<name>` |
 | `src/beeper-mcp-shim.mjs` | `~/.local/bin/beeper-mcp-shim` |
 | `scripts/tailshare` | `~/.local/bin/tailshare` |
+| `plugins/tailshare` | `~/.config/opencode/plugins/tailshare` |
 
 The installer only creates or updates symlinks; it never overwrites a real
 file or directory — it warns and skips. `./install.sh --uninstall` removes
@@ -151,6 +157,44 @@ exits 2.
 
 Tailnet-only: it never enables funnel and never touches the existing 443
 root `/` mapping (removing `/` requires explicit `--force`).
+
+## tailshare plugin (OpenCode tier)
+
+`plugins/tailshare` is the OpenCode plugin tier of the same feature, built
+only on mechanisms the installed runtime supports (verified against the
+`opencode v2.0.29` binary — not the stale V1 `@opencode-ai/plugin` types,
+whose hooks the binary never calls):
+
+- **System-prompt hint.** A `session.hook("context")` (plus `"compaction"`
+  so the guidance survives summaries) appends one short text block: expose
+  the port via `tailshare share <port>` and share the printed URL, never
+  report loopback URLs as the link. Idempotent, one to two lines (it rides
+  every model call).
+- **Tool-result rewrite.** A `tool.hook("execute.after")` rewrites loopback
+  URLs (`localhost`, `127/8`, `0.0.0.0`, `::1`) in **shell tool results
+  only** (an allowlist, so `read`/`write`/`edit`/`patch` file content is
+  never touched). A tailnet URL is emitted **only** when a real, live
+  `tailscale serve` mapping for that port exists (parsed from
+  `tailscale serve status --json`, cached 60s in plugin storage); otherwise
+  the URL is left intact with a `(local-only; run: tailshare share <port>)`
+  annotation — never a fabricated URL.
+
+Free-form assistant prose has no rewrite hook in v2, so it is out of reach
+for the plugin; the `AGENTS.md` rule plus the hint cover it.
+
+**Opt-out:** `TAILSHARE_OFF=1` disables the plugin entirely.
+
+**Fail-safe:** every hook is try/catch-guarded and setup never throws. When
+`tailscale` is missing or serve state is unreadable, the plugin registers
+nothing observable and sessions behave exactly as before.
+
+**Install wiring:** the installer symlinks the whole directory to
+`~/.config/opencode/plugins/tailshare`, which OpenCode auto-discovers — no
+config change. `package.json` declares `@opencode/plugin 2.0.29` (the exact
+installed release) for types, but its `node_modules` must **not** be
+installed inside the plugin directory: the host runtime provides that
+module. Tests live at `test/tailshare-rewrite.test.mjs` and run with the
+repo's usual `npm test`.
 
 ## Secrets policy
 
