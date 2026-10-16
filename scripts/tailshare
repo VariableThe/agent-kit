@@ -1,0 +1,450 @@
+#!/usr/bin/env bash
+# tailshare — expose a local port on the Tailscale tailnet and print a
+# tailnet-reachable URL for it. Tailnet-only; never enables funnel.
+#
+# Only needs bash, tailscale, and node (node parses `tailscale status --json`).
+set -euo pipefail
+
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tailshare"
+IDENTITY_CACHE="$CACHE_DIR/identity.json"
+CREATED_FILE="$CACHE_DIR/created.json"
+IDENTITY_TTL=3600 # seconds (~1h)
+
+usage() {
+  cat <<EOF
+tailshare — share local ports over the Tailscale tailnet (tailnet-only, never funnel)
+
+Usage:
+  tailshare url <port> [--path /name] [--port 8443|10000]
+      Print the URL that would be used. Never mutates serve config.
+  tailshare share <port> [--path /name] [--port 8443|10000]
+      Expose the local port, print exactly ONE shareable URL on stdout
+      (diagnostics go to stderr), exit 0.
+  tailshare list [--json]
+      Pass through `tailscale serve status` (human or JSON).
+  tailshare unshare <port|path> [--force]
+      Remove only the mapping this tool created. Refuses to remove
+      root "/" on 443 unless --force is given explicitly.
+  tailshare check <url>
+      Exit 0 if already tailnet-friendly, 1 if localhost/loopback,
+      2 if public/other.
+
+URL shape: https://<host>.<tailnet-suffix>[:port][/path] (real TLS; no port
+when path-routed on 443). Falls back to http://<tailnet-ip>:<port> only when
+serve-mapping is impossible. Host, suffix, and tailnet IP are read at runtime
+from `tailscale status --json` (Self.DNSName, MagicDNSSuffix,
+Self.TailscaleIPs[0]) and cached under ~/.cache/tailshare/ for ~1h.
+EOF
+}
+
+err() { printf '%s\n' "$*" >&2; }
+
+valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 >= 1 && $1 <= 65535 )); }
+
+# Print compact JSON identity {host,suffix,ip,ts} from live tailscale, or fail.
+identity_json_live() {
+  tailscale status --json 2>/dev/null | node -e '
+const fs = require("fs");
+let d;
+try { d = JSON.parse(fs.readFileSync(0, "utf8")); } catch (e) { process.exit(1); }
+const dns = (d.Self && d.Self.DNSName) || "";
+const suffix = d.MagicDNSSuffix || "";
+const ips = (d.Self && d.Self.TailscaleIPs) || [];
+const ip = ips[0] || "";
+if (!dns || !suffix || !ip) process.exit(1);
+console.log(JSON.stringify({ host: dns.replace(/\.$/, ""), suffix, ip, ts: Date.now() }));
+'
+}
+
+# identity_get: print "host suffix ip" (space-separated) or return nonzero.
+identity_get() {
+  if ! command -v tailscale >/dev/null 2>&1; then return 1; fi
+  local now cached live
+  now="$(date +%s)"
+  if [[ -f "$IDENTITY_CACHE" ]]; then
+    cached="$(node -e '
+const fs = require("fs");
+try {
+  const j = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const now = Number(process.argv[2]);
+  if (j && j.host && j.suffix && j.ip && (now - Math.floor((j.ts || 0) / 1000)) < Number(process.argv[3])) {
+    console.log(j.host + " " + j.suffix + " " + j.ip);
+  }
+} catch (e) { process.exit(1); }
+' "$IDENTITY_CACHE" "$now" "$IDENTITY_TTL" 2>/dev/null || true)"
+    if [[ -n "$cached" ]]; then printf '%s\n' "$cached"; return 0; fi
+  fi
+  if live="$(identity_json_live 2>/dev/null)"; then
+    mkdir -p "$CACHE_DIR"
+    printf '%s\n' "$live" > "$IDENTITY_CACHE"
+    node -e 'const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); console.log(j.host + " " + j.suffix + " " + j.ip);' "$IDENTITY_CACHE"
+    return 0
+  fi
+  if [[ -f "$IDENTITY_CACHE" ]]; then
+    node -e '
+const j = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+if (!j.host || !j.suffix || !j.ip) process.exit(1);
+console.log(j.host + " " + j.suffix + " " + j.ip);
+' "$IDENTITY_CACHE" 2>/dev/null || return 1
+    return 0
+  fi
+  return 1
+}
+
+# Loopback fallback when identity is unavailable. Never crashes, never hangs.
+fallback_loopback() {
+  printf 'http://127.0.0.1:%s\n' "$1"
+  err "tailshare: tailscale identity unavailable (tailscale missing or not logged in); printing loopback fallback"
+  exit 2
+}
+
+serve_json() { tailscale serve status --json 2>/dev/null || printf '{}\n'; }
+
+# Proxy target this tool always uses for a local port.
+target_for() { printf 'http://127.0.0.1:%s' "$1"; }
+
+# Normalise --path value to leading-slash form; fail on empty.
+normalise_path() {
+  local p="$1"
+  [[ "$p" != /* ]] && p="/$p"
+  if [[ "$p" == "/" ]]; then err "tailshare: refusing path \"/\" (root on 443 is reserved)"; return 1; fi
+  if [[ ! "$p" =~ ^/[A-Za-z0-9._~/-]+$ ]] || [[ "$p" == *//* ]]; then
+    err "tailshare: bad path '$1' (use letters, digits, . _ ~ - and /)"; return 1
+  fi
+  printf '%s' "$p"
+}
+
+# created-file helpers (node one-liners over a JSON array).
+created_add() { # kind path serveport targetport extra
+  mkdir -p "$CACHE_DIR"
+  node -e '
+const fs = require("fs");
+const f = process.argv[1];
+let a = [];
+try { a = JSON.parse(fs.readFileSync(f, "utf8")); if (!Array.isArray(a)) a = []; } catch (e) { a = []; }
+const e = { kind: process.argv[2], path: process.argv[3] || "", serveport: process.argv[4] || "", targetport: process.argv[5] || "" };
+if (!a.some((x) => x.kind === e.kind && x.path === e.path && x.serveport === e.serveport && x.targetport === e.targetport)) a.push(e);
+fs.writeFileSync(f, JSON.stringify(a, null, 2) + "\n");
+' "$CREATED_FILE" "$1" "$2" "$3" "$4"
+}
+
+created_remove() { # kind path serveport targetport (empty = wildcard)
+  [[ -f "$CREATED_FILE" ]] || return 0
+  node -e '
+const fs = require("fs");
+const f = process.argv[1];
+let a = [];
+try { a = JSON.parse(fs.readFileSync(f, "utf8")); if (!Array.isArray(a)) a = []; } catch (e) { a = []; }
+const match = (x) => {
+  if (process.argv[2] && x.kind !== process.argv[2]) return false;
+  if (process.argv[3] && x.path !== process.argv[3]) return false;
+  if (process.argv[4] && String(x.serveport) !== process.argv[4]) return false;
+  if (process.argv[5] && String(x.targetport) !== process.argv[5]) return false;
+  return true;
+};
+a = a.filter((x) => !match(x));
+fs.writeFileSync(f, JSON.stringify(a, null, 2) + "\n");
+' "$CREATED_FILE" "$1" "$2" "$3" "$4"
+}
+
+created_find_target() { # port -> lines "kind path serveport"
+  [[ -f "$CREATED_FILE" ]] || return 0
+  node -e '
+const fs = require("fs");
+let a = [];
+try { a = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (!Array.isArray(a)) a = []; } catch (e) { a = []; }
+for (const x of a) {
+  if (String(x.targetport) === process.argv[2]) console.log(x.kind + " " + (x.path || "-") + " " + (x.serveport || "-"));
+}
+' "$CREATED_FILE" "$1" 2>/dev/null || true
+}
+
+created_has_serve() { # serveport -> 0 if recorded
+  [[ -f "$CREATED_FILE" ]] || return 1
+  node -e '
+const fs = require("fs");
+let a = [];
+try { a = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); } catch (e) { process.exit(1); }
+process.exit(a.some((x) => x.kind === "serve" && String(x.serveport) === process.argv[2]) ? 0 : 1);
+' "$CREATED_FILE" "$1" 2>/dev/null
+}
+
+# Live serve lookup via node. Prints proxy target or empty.
+live_proxy_for() { # host serveport path
+  serve_json | node -e '
+let d;
+try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch (e) { process.exit(0); }
+const web = d.Web || {};
+const h = (web[process.argv[1] + ":" + process.argv[2]] || {}).Handlers || {};
+const e = h[process.argv[3]];
+if (e && e.Proxy) console.log(e.Proxy);
+' "$1" "$2" "$3" 2>/dev/null || true
+}
+
+warn_if_nothing_listening() {
+  if ! curl -s -o /dev/null -m 3 "http://127.0.0.1:$1/" 2>/dev/null; then
+    err "tailshare: warning: nothing seems to listen on 127.0.0.1:$1 yet (mapping created anyway)"
+  fi
+}
+
+cmd_url() {
+  local port="" path="" sport="" host suffix ip ident
+  port="${1:?usage: tailshare url <port> [--path /name] [--port N}"; shift
+  valid_port "$port" || { err "tailshare: bad port '$port'"; exit 2; }
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --path) path="$(normalise_path "${2:?--path needs a value}")" || exit 2; shift 2 ;;
+      --path=*) path="$(normalise_path "${1#--path=}")" || exit 2; shift ;;
+      --port) sport="$2"; shift 2 ;;
+      --port=*) sport="${1#--port=}"; shift ;;
+      *) err "tailshare: unknown flag '$1'"; exit 2 ;;
+    esac
+  done
+  if [[ -n "$sport" ]]; then valid_port "$sport" || { err "tailshare: bad --port '$sport'"; exit 2; }; fi
+  ident="$(identity_get)" || fallback_loopback "$port"
+  host="${ident%% *}"
+  if [[ -n "$sport" && -n "$path" ]]; then printf 'https://%s:%s%s\n' "$host" "$sport" "$path"
+  elif [[ -n "$sport" ]]; then printf 'https://%s:%s/\n' "$host" "$sport"
+  elif [[ -n "$path" ]]; then printf 'https://%s%s\n' "$host" "$path"
+  else printf 'https://%s/p%s\n' "$host" "$port"; fi
+}
+
+cmd_share() {
+  local port="" path="" sport="" host suffix ip ident target
+  port="${1:?usage: tailshare share <port> [--path /name] [--port N]}"; shift
+  valid_port "$port" || { err "tailshare: bad port '$port'"; exit 2; }
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --path) path="$(normalise_path "${2:?--path needs a value}")" || exit 1; shift 2 ;;
+      --path=*) path="$(normalise_path "${1#--path=}")" || exit 1; shift ;;
+      --port) sport="$2"; shift 2 ;;
+      --port=*) sport="${1#--port=}"; shift ;;
+      *) err "tailshare: unknown flag '$1'"; exit 2 ;;
+    esac
+  done
+  if [[ -n "$sport" ]]; then valid_port "$sport" || { err "tailshare: bad --port '$sport'"; exit 1; }; fi
+  ident="$(identity_get)" || fallback_loopback "$port"
+  host="${ident%% *}"; ip="${ident##* }"
+  target="$(target_for "$port")"
+
+  # Explicit path (optionally on an explicit serve port): path-routing, no extra port.
+  if [[ -n "$path" ]]; then
+    local sp="${sport:-443}" cur
+    cur="$(live_proxy_for "$host" "$sp" "$path")"
+    if [[ "$cur" == "$target" ]]; then
+      if [[ "$sp" == "443" ]]; then printf 'https://%s%s\n' "$host" "$path"
+      else printf 'https://%s:%s%s\n' "$host" "$sp" "$path"; fi
+      return 0
+    fi
+    if [[ -n "$cur" ]]; then
+      err "tailshare: refusing: path '$path' on :$sp already maps to $cur (not $target)"
+      exit 1
+    fi
+    if [[ "$sp" == "443" ]]; then
+      tailscale serve --bg --set-path "$path" "$target" >/dev/null || { err "tailshare: failed to add path mapping"; exit 1; }
+    else
+      tailscale serve --bg --https "$sp" --set-path "$path" "$target" >/dev/null || { err "tailshare: failed to add mapping on :$sp$path"; exit 1; }
+    fi
+    created_add path "$path" "" "$port"
+    warn_if_nothing_listening "$port"
+    if [[ "$sp" == "443" ]]; then printf 'https://%s%s\n' "$host" "$path"
+    else printf 'https://%s:%s%s\n' "$host" "$sp" "$path"; fi
+    return 0
+  fi
+
+  # Explicit serve port, root path on it.
+  if [[ -n "$sport" ]]; then
+    local cur
+    cur="$(live_proxy_for "$host" "$sport" "/")"
+    if [[ "$cur" == "$target" ]]; then printf 'https://%s:%s/\n' "$host" "$sport"; return 0; fi
+    if [[ -n "$cur" ]]; then
+      err "tailshare: refusing: serve port $sport already maps to $cur (not $target)"
+      exit 1
+    fi
+    tailscale serve --bg --https "$sport" "$target" >/dev/null || { err "tailshare: failed to expose on :$sport"; exit 1; }
+    created_add serve "" "$sport" "$port"
+    warn_if_nothing_listening "$port"
+    printf 'https://%s:%s/\n' "$host" "$sport"
+    return 0
+  fi
+
+  # Default: prefer path-routing under 443 (consumes no extra port).
+  local auto="/p$port" cur
+  cur="$(live_proxy_for "$host" "443" "$auto")"
+  if [[ -z "$cur" ]]; then
+    tailscale serve --bg --set-path "$auto" "$target" >/dev/null || { err "tailshare: failed to add path mapping"; exit 1; }
+    created_add path "$auto" "" "$port"
+    warn_if_nothing_listening "$port"
+    printf 'https://%s%s\n' "$host" "$auto"
+    return 0
+  fi
+  if [[ "$cur" == "$target" ]]; then printf 'https://%s%s\n' "$host" "$auto"; return 0; fi
+
+  # Auto path taken by something else: fall back to --https 8443, then 10000.
+  local p
+  for p in 8443 10000; do
+    cur="$(live_proxy_for "$host" "$p" "/")"
+    if [[ -z "$cur" ]]; then
+      tailscale serve --bg --https "$p" "$target" >/dev/null || continue
+      created_add serve "" "$p" "$port"
+      warn_if_nothing_listening "$port"
+      printf 'https://%s:%s/\n' "$host" "$p"
+      return 0
+    fi
+    if [[ "$cur" == "$target" ]]; then printf 'https://%s:%s/\n' "$host" "$p"; return 0; fi
+    err "tailshare: serve port $p already maps to $cur, trying next"
+  done
+  err "tailshare: port exhaustion: 443 path $auto and serve ports 8443/10000 are all taken by other targets"
+  err "tailshare: falling back to direct tailnet-IP URL (serve the port on 0.0.0.0 or the tailnet IP yourself)"
+  printf 'http://%s:%s\n' "$ip" "$port"
+}
+
+cmd_list() {
+  if [[ "${1:-}" == "--json" ]]; then tailscale serve status --json
+  elif [[ $# -eq 0 ]]; then tailscale serve status
+  else err "tailshare: usage: tailshare list [--json]"; exit 2; fi
+}
+
+cmd_unshare() {
+  local force=0 arg="" a
+  for a in "$@"; do
+    case "$a" in
+      --force) force=1 ;;
+      *) if [[ -z "$arg" ]]; then arg="$a"; else err "tailshare: unexpected '$a'"; exit 2; fi ;;
+    esac
+  done
+  [[ -n "$arg" ]] || { err "tailshare: usage: tailshare unshare <port|path> [--force]"; exit 2; }
+  if ! command -v tailscale >/dev/null 2>&1; then err "tailshare: tailscale not found"; exit 1; fi
+
+  # Path form.
+  if [[ "$arg" == /* ]]; then
+    local p="$arg"
+    if [[ "$p" == "/" && "$force" -eq 0 ]]; then
+      err "tailshare: refusing to remove root \"/\" on 443 (pass --force to override)"
+      exit 1
+    fi
+    if tailscale serve --https=443 --set-path "$p" off >/dev/null 2>&1; then
+      err "tailshare: removed path mapping '$p' on :443"
+    else
+      err "tailshare: no such path mapping '$p' (already gone)"
+    fi
+    created_remove path "$p" "" ""
+    return 0
+  fi
+
+  valid_port "$arg" || { err "tailshare: bad port or path '$arg'"; exit 2; }
+  local removed=0 line kind lpath lsport
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    kind="${line%% *}"; line="${line#* }"; lpath="${line%% *}"; lsport="${line##* }"
+    if [[ "$kind" == "serve" ]]; then
+      if tailscale serve --https="$lsport" off >/dev/null 2>&1; then
+        err "tailshare: removed serve mapping on :$lsport"
+      else
+        err "tailshare: serve mapping on :$lsport already gone"
+      fi
+      created_remove serve "" "$lsport" ""
+      removed=1
+    else
+      if [[ "$lpath" == "/" ]]; then
+        if [[ "$force" -eq 0 ]]; then err "tailshare: skipping root \"/\" (pass --force)"; continue; fi
+      fi
+      if tailscale serve --https=443 --set-path "$lpath" off >/dev/null 2>&1; then
+        err "tailshare: removed path mapping '$lpath' on :443"
+      else
+        err "tailshare: path mapping '$lpath' already gone"
+      fi
+      created_remove path "$lpath" "" ""
+      removed=1
+    fi
+  done <<< "$(created_find_target "$arg")"
+  # Also handle a recorded serve-port number passed directly (unshare 8443).
+  if [[ "$removed" -eq 0 ]] && created_has_serve "$arg"; then
+    if tailscale serve --https="$arg" off >/dev/null 2>&1; then
+      err "tailshare: removed serve mapping on :$arg"
+    else
+      err "tailshare: serve mapping on :$arg already gone"
+    fi
+    created_remove serve "" "$arg" ""
+    removed=1
+  fi
+  if [[ "$removed" -eq 0 ]]; then
+    # Nothing recorded: only remove live mappings with --force, never silently.
+    local ident host live
+    ident="$(identity_get 2>/dev/null)" || { err "tailshare: no tailshare mapping recorded for '$arg' (nothing removed)"; return 0; }
+    host="${ident%% *}"
+    live="$(serve_json | node -e '
+let d;
+try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch (e) { process.exit(0); }
+const want = process.argv[2];
+const web = d.Web || {};
+for (const k of Object.keys(web)) {
+  const handlers = (web[k] || {}).Handlers || {};
+  for (const p of Object.keys(handlers)) {
+    if (handlers[p] && handlers[p].Proxy === want) console.log(k + " " + p);
+  }
+}
+' "http://127.0.0.1:$arg" 2>/dev/null || true)"
+    if [[ -z "$live" ]]; then
+      err "tailshare: no mapping found for port $arg (nothing removed)"
+      return 0
+    fi
+    if [[ "$force" -eq 0 ]]; then
+      err "tailshare: refusing: live mapping(s) for port $arg were not created by this tool (pass --force to remove):"
+      err "$live"
+      exit 1
+    fi
+    while IFS= read -r line; do
+      [[ -n "$line" ]] || continue
+      local key="${line%% *}" p="${line#* }" kp="${key##*:}"
+      if [[ "$p" == "/" && "$kp" == "443" && "$force" -eq 0 ]]; then continue; fi
+      if [[ "$p" == "/" ]]; then
+        tailscale serve --https="$kp" off >/dev/null 2>&1 && err "tailshare: --force removed serve mapping on :$kp" || err "tailshare: --force: :$kp already gone"
+      else
+        tailscale serve --https="$kp" --set-path "$p" off >/dev/null 2>&1 && err "tailshare: --force removed '$p' on :$kp" || err "tailshare: --force: '$p' on :$kp already gone"
+      fi
+    done <<< "$live"
+    return 0
+  fi
+  return 0
+}
+
+cmd_check() {
+  [[ $# -eq 1 ]] || { err "tailshare: usage: tailshare check <url>"; exit 2; }
+  node -e '
+let raw = process.argv[1];
+let u;
+try { u = new URL(raw); } catch (e) {
+  try { u = new URL("http://" + raw); } catch (e2) { console.log("other"); process.exit(2); }
+}
+let host = (u.hostname || "").toLowerCase().replace(/\.$/, "");
+if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+const loopback = host === "localhost" || host === "0.0.0.0" || host === "::" ||
+  host === "::1" || host === "::ffff:127.0.0.1" || /^127\./.test(host);
+if (loopback) { console.log("loopback"); process.exit(1); }
+const m100 = host.match(/^100\.(\d+)\.(\d+)\.(\d+)$/);
+let cg = false;
+if (m100) {
+  const b = Number(m100[1]);
+  if (b >= 64 && b <= 127) cg = true; // 100.64.0.0/10 carrier-grade NAT = Tailscale IPs
+}
+const tailnet = /\.ts\.net$/.test(host) || cg || /^fd7a:115c:a1e0:/i.test(host);
+if (tailnet) { console.log("tailnet"); process.exit(0); }
+console.log("other"); process.exit(2);
+' "$1"
+}
+
+main() {
+  local cmd="${1:-}"; [[ $# -gt 0 ]] && shift
+  case "$cmd" in
+    url) cmd_url "$@" ;;
+    share) cmd_share "$@" ;;
+    list) cmd_list "$@" ;;
+    unshare) cmd_unshare "$@" ;;
+    check) cmd_check "$@" ;;
+    -h|--help|help|"") usage; exit 0 ;;
+    *) err "tailshare: unknown command '$cmd' (see --help)"; exit 2 ;;
+  esac
+}
+
+main "$@"

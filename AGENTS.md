@@ -12,6 +12,7 @@ PR workflow. Writing conventions borrow from aaditagrawal/agentskills.
 - Reference code as `file_path:line_number`.
 - Never invent URLs. Only share links you have verified (fetched, or returned
   by a tool such as `gh`).
+- Share tailnet-friendly links only. Never report `localhost`/`127.0.0.1`/`0.0.0.0`/`::1` as the link; expose the port with `tailshare share <port>` and share the URL it prints (`https://<host>.<tailnet-suffix>[:port][/path]`; real TLS, no port when path-routed on 443). Fall back to `http://100.x.y.z:<port>` only when serve-mapping is impossible, and say so. Same when starting any dev/preview server: expose it first, then share.
 - State hypotheses and evidence separately. If evidence contradicts an
   earlier claim, say so plainly.
 

@@ -31,7 +31,9 @@ agent-kit/
 ├── skills/                 # 12 skills, each SKILL.md + self-contained scripts
 ├── src/beeper-mcp-shim.mjs # the Beeper MCP bridge (Node ≥ 22.5, zero deps)
 ├── test/                   # unit tests for the bridge transport
-├── scripts/check-secrets.sh
+├── scripts/
+│   ├── check-secrets.sh
+│   └── tailshare           # tailnet link helper (-> ~/.local/bin/tailshare)
 ├── requirements.txt        # Python deps for the skills
 └── service.json.example    # template for local, gitignored service.json
 ```
@@ -61,6 +63,7 @@ Role resolution is `--role` flag > `~/.config/agent-kit/host.json` > `plain`.
 | `cli.json` | `~/.config/opencode/cli.json` |
 | `skills/<name>` | `~/.config/opencode/skills/<name>` and `~/.agents/skills/<name>` |
 | `src/beeper-mcp-shim.mjs` | `~/.local/bin/beeper-mcp-shim` |
+| `scripts/tailshare` | `~/.local/bin/tailshare` |
 
 The installer only creates or updates symlinks; it never overwrites a real
 file or directory — it warns and skips. `./install.sh --uninstall` removes
@@ -122,6 +125,32 @@ Credentials live outside the repo at
 `~/.config/beeper-mcp-shim/credential.json` (mode 600). The shim reads the
 token from disk or the OAuth flow; it never writes secrets to stdout (stdout
 is the MCP channel) and never logs them.
+
+## tailshare: tailnet-reachable links
+
+Every link an agent shares for a local service must work from any device on
+the tailnet, so `localhost` URLs are never reported as the link. `tailshare`
+(a bash + node script, linked to `~/.local/bin/tailshare`) exposes a local
+port with `tailscale serve` and prints the shareable URL:
+
+```sh
+tailshare url <port> [--path /name] [--port 8443|10000]  # print the URL; never mutates serve config
+tailshare share <port> [--path /name] [--port 8443|10000] # expose, print ONE URL on stdout (rest to stderr)
+tailshare list [--json]                                   # tailscale serve status passthrough
+tailshare unshare <port|path> [--force]                   # remove only this tool's mapping
+tailshare check <url>                                     # 0 = tailnet, 1 = loopback, 2 = public/other
+```
+
+It prefers path-routing under 443 (no extra port in the URL, real TLS),
+falling back to `--https 8443`, then `10000`. Host, suffix, and tailnet IP
+come from `tailscale status --json` at runtime (cached `~/.cache/tailshare/`,
+~1h TTL) and are never hardcoded. When serve-mapping is impossible it prints
+`http://<tailnet-ip>:<port>` and says so; when tailscale itself is
+unavailable it prints `http://127.0.0.1:<port>` with a stderr caveat and
+exits 2.
+
+Tailnet-only: it never enables funnel and never touches the existing 443
+root `/` mapping (removing `/` requires explicit `--force`).
 
 ## Secrets policy
 
