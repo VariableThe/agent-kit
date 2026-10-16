@@ -213,7 +213,10 @@ shell/edit calls. `plugins/hierarchy-guard` closes that gap: a
 `permission.hook("evaluate")` re-checks the session's agent against its
 configured policy after client rules resolve and forces `deny` when the
 policy denies. It runs after client rules and can only tighten — never
-`deny`/`ask` to `allow`.
+`deny`/`ask` to `allow`. The permission-less `execute` (Code Mode JS) tool,
+whose sandbox exposes `child_process`, is gated separately: for agents whose
+policy denies shell, its input is replaced with an inert payload (verified:
+the tool then errors with `Code cannot be empty` and runs nothing).
 
 **Opt-out:** `HIERARCHY_GUARD_OFF=1`. **Fail-safe:** missing/malformed
 config or unexpected events leave the session untouched; setup never throws.

@@ -145,6 +145,27 @@ describe("resolveEffect", () => {
     assert.equal(resolveEffect("shell", [], [{ action: "*", resource: "*", effect: "deny" }]).effect, "allow");
   });
 
+  it("gates execute as shell-equivalent: unconstrained-shell deny -> deny", () => {
+    // The execute (Code Mode JS) tool has no permission gate of its own, so
+    // the plugin resolves action "shell" over resource "*" for it: any agent
+    // whose policy denies unconstrained shell gets its execute input neutered.
+    const bishopLike = [
+      { action: "shell", resource: "*", effect: "deny" },
+      { action: "shell", resource: "ls *", effect: "allow" },
+      { action: "shell", resource: "* /*", effect: "deny" },
+    ];
+    assert.equal(resolveEffect("shell", "*", bishopLike).effect, "deny");
+    assert.equal(
+      resolveEffect("shell", "*", [{ action: "shell", resource: "*", effect: "allow" }]).effect,
+      "allow",
+    );
+    // A policy that only constrains another action leaves execute alone.
+    assert.equal(
+      resolveEffect("shell", "*", [{ action: "edit", resource: "*", effect: "deny" }]).effect,
+      "ask",
+    );
+  });
+
   it("uses the first matching deny rule as the reported rule", () => {
     const a = { action: "shell", resource: "rm *", effect: "deny" };
     const b = { action: "shell", resource: "*", effect: "deny" };

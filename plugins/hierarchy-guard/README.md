@@ -31,8 +31,23 @@ no hooks registered).
 Every path is defensive: a missing/malformed config yields an empty policy
 (never throws), unexpected event shapes are ignored, and setup never throws.
 A broken plugin behaves exactly as if it were absent — it never breaks the
-agent loop. The `tool.hook("execute.before")` path is audit-only (one stderr
-line on deny); enforcement is the permission hook.
+agent loop. For the shell tool, the `tool.hook("execute.before")` path is
+audit-only (one stderr line on deny); enforcement there is the permission
+hook, because the shell path ignores input mutation.
+
+## execute tool
+
+The execute (Code Mode JS) tool carries no `permission` field in v2.0.29 and
+triggers no `permission.evaluate` events, yet its sandbox exposes
+`require()`/`child_process` — a shell-equivalent bypass for agents denied
+shell. The plugin gates it in `tool.hook("execute.before")`: when the
+session agent's policy denies unconstrained shell (action `"shell"` over
+resource `"*"`), the hook replaces `event.input` with `{ code: "" }` and
+logs the same structured stderr line. Verified 2026-10-17 against the live
+binary: unlike the shell path, the execute path honors the replacement —
+the tool errors with `Code cannot be empty`, no JS runs, and an `execSync`
+filesystem marker is never created. Agents whose policy allows shell, and
+agents with no configured policy, are untouched.
 
 ## Known limitation: T3 Code agent identity
 

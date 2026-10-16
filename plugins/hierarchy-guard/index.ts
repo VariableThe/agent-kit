@@ -22,8 +22,10 @@
  * FAIL-SAFE
  * Every path is wrapped: a missing/malformed config, or an unexpected event
  * shape, leaves the session exactly as it was and never breaks the agent loop.
- * Enforcement is the permission hook; the `tool.hook("execute.before")` path is
- * belt-and-braces only. Opt out with HIERARCHY_GUARD_OFF=1.
+ * Enforcement is the permission hook for gated tools, plus input neutering
+ * (below) for the execute tool. The `tool.hook("execute.before")` path for
+ * the shell tool itself is audit-only: the shell path ignores input
+ * mutation, so that leg only logs. Opt out with HIERARCHY_GUARD_OFF=1.
  */
 import { Plugin } from "@opencode/plugin";
 import { homedir } from "node:os";
@@ -45,7 +47,7 @@ type ToolEvent = {
   sessionID?: unknown;
   agent?: unknown;
   tool?: unknown;
-  input?: { command?: unknown; cmd?: unknown } | unknown;
+  input?: { command?: unknown; cmd?: unknown; code?: unknown } | unknown;
 };
 
 function isDisabled(env: NodeJS.ProcessEnv | undefined): boolean {
@@ -88,7 +90,10 @@ function logDenial(event: EvaluateEvent | ToolEvent, action: string, rule: unkno
       : [];
     const input = (event as ToolEvent).input;
     if (input && typeof input === "object") {
-      const command = (input as { command?: unknown }).command ?? (input as { cmd?: unknown }).cmd;
+      const command =
+        (input as { command?: unknown }).command ??
+        (input as { cmd?: unknown }).cmd ??
+        (input as { code?: unknown }).code; // execute tool carries JS, not a command
       if (typeof command === "string") resources.push(command);
     }
     console.error(
@@ -139,10 +144,34 @@ export default Plugin.define({
         }
       });
 
-      // --- Belt-and-braces only: observed to be unreliable; logs + no-ops. ---
+      // --- execute tool: no permission gate in v2.0.29, so neuter on deny. ---
+      // The execute (Code Mode JS) tool carries no `permission` field and
+      // triggers no permission.evaluate events, yet its sandbox exposes
+      // require()/child_process. Gate it as shell-equivalent: when the
+      // session agent's policy denies unconstrained shell, replace the
+      // tool input with an inert payload. Verified 2026-10-17 against
+      // v2.0.29: the execute path honors the replacement (the tool errors
+      // with "Code cannot be empty." and no JS runs), while the shell
+      // tool ignores the same mutation — so the permission hook above
+      // stays the enforcer for shell, and this replacement is the
+      // enforcer for execute. Never returns a value; the hook contract
+      // is void and throwing does not block.
       await ctx.tool?.hook?.("execute.before", (event: ToolEvent) => {
         try {
           if (!event || typeof event !== "object") return;
+          if (event.tool === "execute") {
+            const rules = rulesFor(event.agent);
+            if (!rules) return; // no configured policy: leave the session alone
+            const { effect, rule } = resolveEffect("shell", "*", rules);
+            if (effect !== "deny") return;
+            try {
+              (event as { input?: unknown }).input = { code: "" };
+            } catch {
+              /* fall through to the audit log */
+            }
+            logDenial(event, "shell", rule);
+            return;
+          }
           if (event.tool !== "shell") return;
           const rules = rulesFor(event.agent);
           if (!rules) return;
