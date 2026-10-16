@@ -12,9 +12,11 @@ BASE_FILE="$REPO_ROOT/opencode.base.json"
 OVERLAYS_DIR="$REPO_ROOT/overlays"
 SKILLS_DIR="$REPO_ROOT/skills"
 SHIM_SRC="$REPO_ROOT/src/beeper-mcp-shim.mjs"
+TAILSHARE_SRC="$REPO_ROOT/scripts/tailshare"
 LIVE_FILE="$HOME/.config/opencode/opencode.json"
 HOST_FILE="$HOME/.config/agent-kit/host.json"
 SHIM_LINK="$HOME/.local/bin/beeper-mcp-shim"
+TAILSHARE_LINK="$HOME/.local/bin/tailshare"
 SKILL_LINK_DIRS=("$HOME/.config/opencode/skills" "$HOME/.agents/skills")
 
 usage() {
@@ -29,14 +31,14 @@ Modes (default is read-only):
                  This is the default when no flags are given. Creates no backups and writes nothing.
   --dry-run      Alias for --check.
   --apply        Write changes: merge base + role overlay into $HOME/.config/opencode/opencode.json,
-                 link AGENTS.md / cli.json, project the ./skills symlinks, and link the Beeper
+                 link AGENTS.md / cli.json / tailshare, project the ./skills symlinks, and link the Beeper
                  bridge into ~/.local/bin. The only mode that writes opencode.json.
   --role <name>  Use overlay overlays/<name>.json for this run. When combined with --apply and the
                  apply succeeds, the role is persisted to $HOME/.config/agent-kit/host.json
                  as {"role": "<name>"}. Without --apply it only affects that run's check.
                  Role resolution: --role flag > host.json > "plain".
   --force        Bypass the two refusal guards (temporary-checkout guard and drop-live-config guard).
-  --uninstall    Remove only installer-created symlinks (AGENTS.md, cli.json, skill links, the shim).
+  --uninstall    Remove only installer-created symlinks (AGENTS.md, cli.json, tailshare, skill links, the shim).
                  Never deletes opencode.json itself. Refuses from a temporary checkout unless --force.
   --help         Show this help and exit 0.
 
@@ -50,6 +52,7 @@ What gets linked:
   cli.json                          -> ~/.config/opencode/cli.json
   skills/<name>                     -> ~/.config/opencode/skills/<name> and ~/.agents/skills/<name>
   src/beeper-mcp-shim.mjs           -> ~/.local/bin/beeper-mcp-shim
+  scripts/tailshare                 -> ~/.local/bin/tailshare
 
 Refusal guards (read-only by default):
   1. Writing is opt-in: only --apply writes opencode.json. --check / default writes nothing.
@@ -238,7 +241,8 @@ check_link_drift() {
   for pair in \
     "AGENTS.md:$HOME/.config/opencode/AGENTS.md:$REPO_ROOT/AGENTS.md" \
     "cli.json:$HOME/.config/opencode/cli.json:$REPO_ROOT/cli.json" \
-    "beeper-mcp-shim:$SHIM_LINK:$SHIM_SRC"; do
+    "beeper-mcp-shim:$SHIM_LINK:$SHIM_SRC" \
+    "tailshare:$TAILSHARE_LINK:$TAILSHARE_SRC"; do
     local label="${pair%%:*}"
     local rest="${pair#*:}"
     local link="${rest%%:*}"
@@ -422,8 +426,12 @@ do_apply() {
   link_file_apply "$REPO_ROOT/AGENTS.md" "$HOME/.config/opencode/AGENTS.md" "AGENTS.md"
   link_file_apply "$REPO_ROOT/cli.json" "$HOME/.config/opencode/cli.json" "cli.json"
   link_file_apply "$SHIM_SRC" "$SHIM_LINK" "beeper-mcp-shim"
+  link_file_apply "$TAILSHARE_SRC" "$TAILSHARE_LINK" "tailshare"
   if [[ -f "$SHIM_SRC" ]]; then
     chmod +x "$SHIM_SRC"
+  fi
+  if [[ -f "$TAILSHARE_SRC" ]]; then
+    chmod +x "$TAILSHARE_SRC"
   fi
 
   if [[ -n "$ROLE_ARG" ]]; then
@@ -437,7 +445,7 @@ do_uninstall() {
   guard_temporary_checkout
   local removed=0
   local link cur
-  for link in "$HOME/.config/opencode/AGENTS.md" "$HOME/.config/opencode/cli.json" "$SHIM_LINK"; do
+  for link in "$HOME/.config/opencode/AGENTS.md" "$HOME/.config/opencode/cli.json" "$SHIM_LINK" "$TAILSHARE_LINK"; do
     if [[ -L "$link" ]]; then
       cur="$(readlink "$link" || true)"
       case "$cur" in
