@@ -28,7 +28,7 @@ agent-kit/
 ├── overlays/
 │   ├── plain.json          # {} — default, no host-specific bits
 │   └── beeper-client.json  # adds only mcp.servers.beeper (ssh to a Beeper host)
-├── skills/                 # 12 skills, each SKILL.md + self-contained scripts
+├── skills/                 # 13 skills, each SKILL.md + self-contained scripts
 ├── src/beeper-mcp-shim.mjs # the Beeper MCP bridge (Node ≥ 22.5, zero deps)
 ├── test/                   # unit tests (bridge transport, tailshare rewrite)
 ├── plugins/
@@ -104,6 +104,7 @@ plus self-contained scripts. They run on-device; no file leaves the machine.
 | `audio-transcribe` | speech to text (Whisper) | `faster-whisper` |
 | `notes-to-pdf` | normalize NotebookLM Markdown, build HTML/PDF | `pandoc` binary |
 | `beeper-collab` | keep a collaborator posted over Beeper, read replies back | stdlib only |
+| `beeper-bot` | auto-reply bot on a named chat for a bounded duration | node, `ssh`, `opencode` CLI |
 | `beeper` | operate Beeper Desktop across messaging networks (via the bridge) | the bridge, `ssh` |
 | `workstation` | offload heavy builds / GPU jobs to a bigger machine over SSH | `ssh`, `tailscale` |
 
