@@ -97,3 +97,44 @@ For a background loop that watches a chat and auto-replies, see
 `beeper-notify.mjs` in `VariableThe/beeper-ecocsystem-wide`. In a work
 context auto-generated replies must stay to acknowledgements only;
 substantive answers go through the working agent.
+
+## Tick mode
+
+A 30-minute timer runs one tick against a single chat:
+
+```bash
+python3 scripts/beeper_collab.py tick --chat 401 --brief "footer PR"
+python3 scripts/beeper_collab.py tick --chat 401 --dry-run
+python3 scripts/beeper_collab.py tick --chat 401 --simulate "ok thanks"
+```
+
+Each tick reads the new inbound messages since the stored cursor, classifies
+every one locally with deterministic rules (no model): COMMITMENT, REQUEST,
+YESNO, OPEN_QUESTION, ACK, OTHER. The reply policy is hard-coded, not model
+discretion:
+
+- A reply is possible only when **every** new message classifies as ACK or
+  YESNO — an acknowledgement, or a clear yes/no question answerable from the
+  chat context.
+- Any REQUEST, COMMITMENT, OPEN_QUESTION, or OTHER message means the tick
+  sends nothing and emits an escalation record (flagged in the run JSON and
+  stderr) for the parent agent or the user. Never guess an answer.
+- The draft is produced by a tiny local opencode agent
+  (`skills/beeper-collab/profiles/tick/`, agent `collab-tick`, output is
+  exactly `NO_REPLY` or `SEND: <one line>`), then hard-gated in code:
+  max 160 chars, max 2 lines, never deadlines, scope, estimates, prices,
+  links, or promises (deny list in `scripts/beeper_collab.py`), and at most
+  4 verified sends per rolling hour. Even a compliant draft is denied in
+  code if it contains those.
+- Sends go through the shared verified-send path, so the assistant footer
+  is always appended and can never be bypassed by tick mode.
+- The cursor advances only after a successful send or a deliberate
+  no-reply; a failed send leaves the messages for the next tick.
+
+Every run prints one JSON record (`ts`, `chat`, `decisions`, `model`,
+`guard`, `sent`, `escalated`) to stdout; normal runs append the same record
+to `~/.local/state/beeper-collab/tick.jsonl` (the source for the rolling
+send cap). `--dry-run` runs the full decide-but-don't-send path and writes
+nothing; `--simulate "<text>"` exercises classify+model+guard on one text
+without fetching, sending, or writing state. Tick only acknowledges and answers supported yes/no questions —
+everything else waits for the user.
