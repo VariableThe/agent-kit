@@ -30,12 +30,17 @@ agent-kit/
 │   └── beeper-client.json  # adds only mcp.servers.beeper (ssh to a Beeper host)
 ├── skills/                 # 13 skills, each SKILL.md + self-contained scripts
 ├── src/beeper-mcp-shim.mjs # the Beeper MCP bridge (Node ≥ 22.5, zero deps)
-├── test/                   # unit tests (bridge transport, tailshare rewrite)
+├── test/                   # unit tests (bridge transport, tailshare + hierarchy-guard policy, e2e harness)
 ├── plugins/
-│   └── tailshare           # OpenCode plugin (-> ~/.config/opencode/plugins/tailshare)
-│       ├── index.ts        # V2 plugin entry (system-hint + tool-result rewrite)
-│       ├── rewrite.mjs     # pure helpers (unit-tested, no opencode imports)
-│       └── package.json    # plugin manifest (host provides @opencode/plugin)
+│   ├── tailshare           # OpenCode plugin (-> ~/.config/opencode/plugins/tailshare)
+│   │   ├── index.ts        # V2 plugin entry (system-hint + tool-result rewrite)
+│   │   ├── rewrite.mjs     # pure helpers (unit-tested, no opencode imports)
+│   │   └── package.json    # plugin manifest (host provides @opencode/plugin)
+│   └── hierarchy-guard     # permission re-enforcement plugin (same wiring)
+│       ├── index.ts        # V2 plugin entry (permission.evaluate deny hook)
+│       ├── policy.mjs      # pure helpers (unit-tested, no opencode imports)
+│       ├── README.md       # enforcement, precedence, opt-out, limitations
+│       └── package.json    # plugin manifest (no deps; host provides @opencode/plugin)
 ├── scripts/
 │   ├── check-secrets.sh
 │   └── tailshare           # tailnet link helper (-> ~/.local/bin/tailshare)
@@ -70,6 +75,7 @@ Role resolution is `--role` flag > `~/.config/agent-kit/host.json` > `plain`.
 | `src/beeper-mcp-shim.mjs` | `~/.local/bin/beeper-mcp-shim` |
 | `scripts/tailshare` | `~/.local/bin/tailshare` |
 | `plugins/tailshare` | `~/.config/opencode/plugins/tailshare` |
+| `plugins/hierarchy-guard` | `~/.config/opencode/plugins/hierarchy-guard` |
 
 The installer only creates or updates symlinks; it never overwrites a real
 file or directory — it warns and skips. `./install.sh --uninstall` removes
@@ -196,6 +202,36 @@ installed release) for types, but its `node_modules` must **not** be
 installed inside the plugin directory: the host runtime provides that
 module. Tests live at `test/tailshare-rewrite.test.mjs` and run with the
 repo's usual `npm test`.
+
+## hierarchy enforcement (plugin)
+
+Agent `permissions` in `opencode.base.json` are not self-enforcing: client
+layers (T3 Code, an SDK `session.update({ permissions })`) append
+session-level rules that win under the runtime's last-match-wins
+resolution, which is how read-only agents were observed executing
+shell/edit calls. `plugins/hierarchy-guard` closes that gap: a
+`permission.hook("evaluate")` re-checks the session's agent against its
+configured policy after client rules resolve and forces `deny` when the
+policy denies. It runs after client rules and can only tighten — never
+`deny`/`ask` to `allow`. The permission-less `execute` (Code Mode JS) tool,
+whose sandbox exposes `child_process`, is gated separately: for agents whose
+policy denies shell, its input is replaced with an inert payload (verified:
+the tool then errors with `Code cannot be empty` and runs nothing).
+
+**Opt-out:** `HIERARCHY_GUARD_OFF=1`. **Fail-safe:** missing/malformed
+config or unexpected events leave the session untouched; setup never throws.
+
+**Known limitation:** T3 Code hardcodes thread/child agents to `build`, so
+T3-spawned sessions carry `agent: "build"` and the plugin cannot know they
+were meant to be bishop/knight. Enforcement applies wherever the session's
+agent identity matches a configured agent — hence the build/monarch prompts
+instruct: when delegating via the subagent tool, pass the intended worker
+as the tool's `agent` parameter (`bishop` planning, `knight`
+implementation, `mercenary` free fallback).
+
+Details in `plugins/hierarchy-guard/README.md`; unit tests at
+`test/hierarchy-guard-policy.test.mjs` (`npm test`); live-binary harness at
+`test/hierarchy-guard-e2e.sh` (needs network + `opencode`, not in `npm test`).
 
 ## Secrets policy
 

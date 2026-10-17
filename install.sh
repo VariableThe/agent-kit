@@ -19,6 +19,8 @@ SHIM_LINK="$HOME/.local/bin/beeper-mcp-shim"
 TAILSHARE_LINK="$HOME/.local/bin/tailshare"
 TAILSHARE_PLUGIN_SRC="$REPO_ROOT/plugins/tailshare"
 TAILSHARE_PLUGIN_LINK="$HOME/.config/opencode/plugins/tailshare"
+HIERARCHY_GUARD_PLUGIN_SRC="$REPO_ROOT/plugins/hierarchy-guard"
+HIERARCHY_GUARD_PLUGIN_LINK="$HOME/.config/opencode/plugins/hierarchy-guard"
 SKILL_LINK_DIRS=("$HOME/.config/opencode/skills" "$HOME/.agents/skills")
 
 usage() {
@@ -33,7 +35,7 @@ Modes (default is read-only):
                  This is the default when no flags are given. Creates no backups and writes nothing.
   --dry-run      Alias for --check.
   --apply        Write changes: merge base + role overlay into $HOME/.config/opencode/opencode.json,
-                 link AGENTS.md / cli.json / tailshare / tailshare plugin, project the ./skills symlinks,
+                 link AGENTS.md / cli.json / tailshare / tailshare plugin / hierarchy-guard plugin, project the ./skills symlinks,
                  and link the Beeper bridge into ~/.local/bin. The only mode that writes opencode.json.
   --role <name>  Use overlay overlays/<name>.json for this run. When combined with --apply and the
                  apply succeeds, the role is persisted to $HOME/.config/agent-kit/host.json
@@ -56,6 +58,7 @@ What gets linked:
   src/beeper-mcp-shim.mjs           -> ~/.local/bin/beeper-mcp-shim
   scripts/tailshare                 -> ~/.local/bin/tailshare
   plugins/tailshare                 -> ~/.config/opencode/plugins/tailshare (auto-discovered, no config change)
+  plugins/hierarchy-guard           -> ~/.config/opencode/plugins/hierarchy-guard (auto-discovered, no config change)
 
 Refusal guards (read-only by default):
   1. Writing is opt-in: only --apply writes opencode.json. --check / default writes nothing.
@@ -274,7 +277,8 @@ check_link_drift() {
     "cli.json:$HOME/.config/opencode/cli.json:$REPO_ROOT/cli.json" \
     "beeper-mcp-shim:$SHIM_LINK:$SHIM_SRC" \
     "tailshare:$TAILSHARE_LINK:$TAILSHARE_SRC" \
-    "tailshare-plugin:$TAILSHARE_PLUGIN_LINK:$TAILSHARE_PLUGIN_SRC"; do
+    "tailshare-plugin:$TAILSHARE_PLUGIN_LINK:$TAILSHARE_PLUGIN_SRC" \
+    "hierarchy-guard-plugin:$HIERARCHY_GUARD_PLUGIN_LINK:$HIERARCHY_GUARD_PLUGIN_SRC"; do
     local label="${pair%%:*}"
     local rest="${pair#*:}"
     local link="${rest%%:*}"
@@ -460,6 +464,7 @@ do_apply() {
   link_file_apply "$SHIM_SRC" "$SHIM_LINK" "beeper-mcp-shim"
   link_file_apply "$TAILSHARE_SRC" "$TAILSHARE_LINK" "tailshare"
   link_dir_apply "$TAILSHARE_PLUGIN_SRC" "$TAILSHARE_PLUGIN_LINK" "tailshare plugin"
+  link_dir_apply "$HIERARCHY_GUARD_PLUGIN_SRC" "$HIERARCHY_GUARD_PLUGIN_LINK" "hierarchy-guard plugin"
   if [[ -f "$SHIM_SRC" ]]; then
     chmod +x "$SHIM_SRC"
   fi
@@ -478,7 +483,7 @@ do_uninstall() {
   guard_temporary_checkout
   local removed=0
   local link cur
-  for link in "$HOME/.config/opencode/AGENTS.md" "$HOME/.config/opencode/cli.json" "$SHIM_LINK" "$TAILSHARE_LINK" "$TAILSHARE_PLUGIN_LINK"; do
+  for link in "$HOME/.config/opencode/AGENTS.md" "$HOME/.config/opencode/cli.json" "$SHIM_LINK" "$TAILSHARE_LINK" "$TAILSHARE_PLUGIN_LINK" "$HIERARCHY_GUARD_PLUGIN_LINK"; do
     if [[ -L "$link" ]]; then
       cur="$(readlink "$link" || true)"
       case "$cur" in
