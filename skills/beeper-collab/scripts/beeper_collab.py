@@ -41,6 +41,8 @@ LOCAL_LOOPBACKS = {"localhost", "127.0.0.1", "::1"}
 PROTOCOL_VERSION = "2025-06-18"
 SEEN_CAP = 500
 FETCH_PAGES_MAX = 5
+# Appended to every outbound send so the recipient knows an assistant sent it.
+AI_DISCLOSURE = "\n\nThis message was sent by an assistant."
 
 # Message types that never count as inbound content.
 SKIP_TYPES = {"REACTION", "SYSTEM", "RECEIPT", "TYPING", "READ", "EDIT", "DELETED"}
@@ -251,6 +253,14 @@ def clean_text(raw):
     if not isinstance(raw, str):
         return ""
     return html.unescape(TEXT_TAG_RE.sub("", raw)).strip()
+
+
+WS_RUN_RE = re.compile(r"\s+")
+
+
+def normalize_for_compare(raw):
+    """Collapse whitespace so adapter-specific line breaks still compare equal."""
+    return WS_RUN_RE.sub(" ", clean_text(raw)).strip()
 
 
 def parse_ts(value):
@@ -698,6 +708,10 @@ def cmd_send(args):
     local = getattr(args, "local_mode", False)
     if not args.text or not args.text.strip():
         fail("send requires non-empty --text")
+    text = args.text.strip()
+    if not text.endswith(AI_DISCLOSURE):
+        text += AI_DISCLOSURE
+    args.text = text
     call_args = {"chatID": args.chat, "text": args.text}
     if args.reply_to:
         call_args["replyToMessageID"] = args.reply_to
@@ -719,11 +733,12 @@ def cmd_send(args):
                                       args.timeout, pages=1, local=local)
         except BridgeError:
             items = []
-        wanted = args.text.strip()
+        wanted = normalize_for_compare(args.text)
         ordered = newest_first(items)
         found = next(
             (m for m in ordered
-             if clean_text(m.get("text")) == wanted and m.get("isSender") is True),
+             if normalize_for_compare(m.get("text")) == wanted
+             and m.get("isSender") is True),
             None,
         )
         if found is not None:
@@ -733,7 +748,7 @@ def cmd_send(args):
             fail(f"send ambiguous ({e}); text is present but not newest; not retrying")
         fail(f"send failed ({e}); chat re-read: text not present; not retrying")
     # Verify: read the chat back; our text must appear as the newest message.
-    wanted = args.text.strip()
+    wanted = normalize_for_compare(args.text)
     verified = None
     verify_deadline = time.monotonic() + 20
     while time.monotonic() < verify_deadline:
@@ -744,7 +759,7 @@ def cmd_send(args):
             fail(f"send not verified (re-read failed: {e})")
         if items:
             newest = newest_first(items)[0]
-            if (clean_text(newest.get("text")) == wanted
+            if (normalize_for_compare(newest.get("text")) == wanted
                     and newest.get("isSender") is True):
                 verified = newest
                 break
@@ -758,7 +773,8 @@ def cmd_send(args):
             items = []
         anywhere = next(
             (m for m in newest_first(items)
-             if clean_text(m.get("text")) == wanted and m.get("isSender") is True),
+             if normalize_for_compare(m.get("text")) == wanted
+             and m.get("isSender") is True),
             None,
         )
         if anywhere is not None:
