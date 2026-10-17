@@ -49,14 +49,42 @@ the tool errors with `Code cannot be empty`, no JS runs, and an `execSync`
 filesystem marker is never created. Agents whose policy allows shell, and
 agents with no configured policy, are untouched.
 
-## Known limitation: T3 Code agent identity
+### T3 Code exemption
 
-T3 Code's adapter hardcodes thread/child OpenCode agent to `build` and
-writes session-level rules, so T3-spawned sessions carry `agent: "build"`;
-the plugin cannot know they were meant to be bishop/knight. Enforcement
-applies wherever the session's agent identity matches a configured agent.
-When delegating via the subagent tool, pass the intended worker as the
-tool's `agent` parameter so the session runs under the correct identity.
+Under the T3 Code harness the neutering is skipped for a short exempt list
+(`build`, i.e. Monarch) — see `EXECUTE_NEUTER_EXEMPT_AGENTS` in `policy.mjs`.
+This is safe because the T3 Code `execute` sandbox is a restricted JS
+interpreter, not the general runtime the v2.0.29 gate was written for.
+Probed 2026-10-17 in a live T3 Code session: `typeof require` and
+`typeof process` are `undefined`, `globalThis` is rejected as an unknown
+identifier, dynamic `import` is unsupported, `fetch('file:///etc/hostname')`
+fails with "fetch cannot be used for filesystem access", and an
+`execSync`/`writeFileSync` escape created no marker file (the same session's
+shell created one, and shell stays gated). Neutering there bought nothing and
+cost Monarch its entire Code Mode catalog — the only route to the browser
+tools, the MCP servers (context7, playwright, beeper, opencode_console) and
+the T3 Code app tools — surfacing as "Code cannot be empty." on every call.
+
+The gate is the environment, not the client name: `isT3CodeHarness` returns
+true when `process.env` has any own enumerable key beginning `T3CODE_` with a
+non-empty string value (prefix-based, so a renamed `T3CODE_*` variable still
+detects the harness). Detection came from environment evidence — a T3 Code
+session exposes `T3CODE_CLI_PATH=/home/decon/.t3/bin/t3` and other `T3CODE_*`
+keys, while native OpenCode CLI/service sessions expose none. Every other
+agent (bishop, witch, grand-bishop) keeps the neutering under T3 Code, native
+sessions keep it for all agents, and `permission.hook("evaluate")` remains the
+authoritative enforcer regardless.
+
+## T3 Code agent identity (verified 2026-10-17)
+
+T3 Code runs its primary thread as `build` and does apply that agent's
+configured system text. Passing the intended worker to the subagent tool's
+`agent` parameter **does** set the child session's identity — enforcement then
+matches that identity. Observed today: `bishop` ran as `bishop` on
+`opencode/beam-free` with shell/edit/glob denied by this plugin, and `knight`
+ran as `knight` on `opencode/deepseek-v4.1-flash-free` with shell/edit/execute
+working. So a delegated session is policed as the agent it was asked to be;
+only the primary T3 Code thread is fixed at `build`.
 
 ## Install wiring
 

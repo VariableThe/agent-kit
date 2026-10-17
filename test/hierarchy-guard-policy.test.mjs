@@ -6,7 +6,9 @@ import { join } from "node:path";
 import {
   buildPolicy,
   compilePattern,
+  isExecuteNeuterExempt,
   isRule,
+  isT3CodeHarness,
   loadPolicy,
   matchesPattern,
   normalizeResource,
@@ -171,6 +173,51 @@ describe("resolveEffect", () => {
     const b = { action: "shell", resource: "*", effect: "deny" };
     const { rule } = resolveEffect("shell", ["rm -rf x"], [b, a]);
     assert.equal(rule, a);
+  });
+});
+
+describe("isT3CodeHarness / isExecuteNeuterExempt", () => {
+  const T3_ENV = { T3CODE_CLI_PATH: "/home/decon/.t3/bin/t3", PATH: "/usr/bin" };
+
+  it("isT3CodeHarness is true for any non-empty T3CODE_ value", () => {
+    assert.equal(isT3CodeHarness(T3_ENV), true);
+    // Prefix-based on purpose: a renamed T3CODE_ variable still detects the harness.
+    assert.equal(isT3CodeHarness({ T3CODE_SOMETHING_ELSE: "1" }), true);
+  });
+
+  it("isT3CodeHarness is false without a T3CODE_ key or with an empty/non-string value", () => {
+    assert.equal(isT3CodeHarness({}), false);
+    assert.equal(isT3CodeHarness({ PATH: "/usr/bin", HOME: "/home/decon" }), false);
+    assert.equal(isT3CodeHarness({ T3CODE_CLI_PATH: "" }), false);
+    assert.equal(isT3CodeHarness({ T3CODE_CLI_PATH: 42 }), false);
+    assert.equal(isT3CodeHarness({ T3CODE_CLI_PATH: null }), false);
+    // An inherited-looking prefix must not count if it is not the own key name.
+    assert.equal(isT3CodeHarness({ XT3CODE_CLI_PATH: "/x" }), false);
+  });
+
+  it("exempts build only under the T3 Code harness", () => {
+    assert.equal(isExecuteNeuterExempt("build", T3_ENV), true);
+    assert.equal(isExecuteNeuterExempt("build", {}), false);
+    assert.equal(isExecuteNeuterExempt("build", { T3CODE_CLI_PATH: "" }), false);
+    assert.equal(isExecuteNeuterExempt("build", { T3CODE_CLI_PATH: "/x", PATH: "/usr/bin" }), true);
+  });
+
+  it("does not exempt any other agent, even under T3 Code", () => {
+    for (const agent of ["bishop", "witch", "grand-bishop", "knight", "control"]) {
+      assert.equal(isExecuteNeuterExempt(agent, T3_ENV), false);
+    }
+  });
+
+  it("is false for non-string agents and never throws on a bad env", () => {
+    for (const agent of [undefined, null, 42, {}, ["build"], Symbol("build")]) {
+      assert.equal(isExecuteNeuterExempt(agent, T3_ENV), false);
+    }
+    for (const env of [null, undefined, 42, "T3CODE_CLI_PATH=/x", [], () => {}]) {
+      assert.equal(isExecuteNeuterExempt("build", env), false);
+    }
+    assert.equal(isT3CodeHarness(null), false);
+    assert.equal(isT3CodeHarness(undefined), false);
+    assert.equal(isT3CodeHarness("T3CODE_CLI_PATH=/x"), false);
   });
 });
 

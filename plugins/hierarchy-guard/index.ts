@@ -23,14 +23,17 @@
  * Every path is wrapped: a missing/malformed config, or an unexpected event
  * shape, leaves the session exactly as it was and never breaks the agent loop.
  * Enforcement is the permission hook for gated tools, plus input neutering
- * (below) for the execute tool. The `tool.hook("execute.before")` path for
- * the shell tool itself is audit-only: the shell path ignores input
- * mutation, so that leg only logs. Opt out with HIERARCHY_GUARD_OFF=1.
+ * (below) for the execute tool — except under the T3 Code harness, where a
+ * small exempt-agent list (Monarch/`build`) is spared the neutering because
+ * that harness sandbox cannot reach the filesystem or shell. The
+ * `tool.hook("execute.before")` path for the shell tool itself is audit-only:
+ * the shell path ignores input mutation, so that leg only logs. Opt out with
+ * HIERARCHY_GUARD_OFF=1.
  */
 import { Plugin } from "@opencode/plugin";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadPolicy, resolveEffect } from "./policy.mjs";
+import { isExecuteNeuterExempt, loadPolicy, resolveEffect } from "./policy.mjs";
 
 const OFF_ENV = "HIERARCHY_GUARD_OFF";
 
@@ -164,6 +167,16 @@ export default Plugin.define({
             if (!rules) return; // no configured policy: leave the session alone
             const { effect, rule } = resolveEffect("shell", "*", rules);
             if (effect !== "deny") return;
+            // T3 Code exemption (2026-10-17). The T3 Code execute sandbox is
+            // a restricted interpreter, not the general JS runtime: probing it
+            // showed no `require`, no `process`, no dynamic `import`, and
+            // `fetch` refusing `file:` URLs, while an `execSync` write created
+            // no marker file. Neutering therefore buys nothing there, and it
+            // costs agent `build` (Monarch) the entire Code Mode catalog —
+            // browser, MCP servers and the T3 Code app tools. Native sessions
+            // and every other agent keep the neutering; the permission hook
+            // above stays the authoritative enforcer for shell throughout.
+            if (isExecuteNeuterExempt(event.agent, process.env)) return;
             try {
               (event as { input?: unknown }).input = { code: "" };
             } catch {

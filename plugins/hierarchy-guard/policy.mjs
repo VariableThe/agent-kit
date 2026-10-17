@@ -128,6 +128,48 @@ export function resolveEffect(action, resources, rules) {
   return { effect: "allow", rule: null }; // no resources at all: runtime yields allow
 }
 
+/** Prefix every T3 Code session variable carries (e.g. `T3CODE_CLI_PATH`). */
+const T3CODE_ENV_PREFIX = "T3CODE_";
+
+/**
+ * Agents exempt from execute-tool neutering, and ONLY while running under the
+ * T3 Code harness. `build` is Monarch, the primary T3 Code orchestrator: Code
+ * Mode is its only route to the browser tools, the MCP servers and the T3 Code
+ * app tools, so neutering it removes those catalogs outright. The exemption is
+ * safe because the harness sandbox was probed on 2026-10-17 and cannot reach
+ * the filesystem or spawn a process (`require`/`process` undefined, dynamic
+ * `import` unsupported, `fetch` rejects `file:` URLs, an `execSync` write
+ * created no marker file) — there is nothing to gate there. Every other agent
+ * (bishop, witch, grand-bishop) stays neutered, native OpenCode sessions stay
+ * neutered, and the `permission.hook("evaluate")` leg remains the
+ * authoritative enforcer everywhere.
+ */
+const EXECUTE_NEUTER_EXEMPT_AGENTS = ["build"];
+
+/**
+ * True when `env` looks like a T3 Code session environment. Detection is
+ * prefix-based on an own enumerable key with a non-empty string value, so it
+ * survives the specific `T3CODE_*` variable being renamed. Native OpenCode CLI
+ * and service processes carry no such key.
+ */
+export function isT3CodeHarness(env) {
+  if (!env || typeof env !== "object") return false;
+  for (const key of Object.keys(env)) {
+    if (!key.startsWith(T3CODE_ENV_PREFIX)) continue;
+    const value = env[key];
+    if (typeof value === "string" && value.length > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * True only for an exempt agent running under the T3 Code harness; false for
+ * every other agent, for a non-string agent, and for a missing/non-object env.
+ */
+export function isExecuteNeuterExempt(agent, env) {
+  return isT3CodeHarness(env) && EXECUTE_NEUTER_EXEMPT_AGENTS.includes(agent);
+}
+
 /** Build the agent -> rules map from a parsed opencode config object. */
 export function buildPolicy(config) {
   const policy = new Map();
