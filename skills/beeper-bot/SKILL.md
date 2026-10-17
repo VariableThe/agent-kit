@@ -19,8 +19,9 @@ elapses.
 Contrast with `beeper-collab` (work-context tool): that skill only queues
 inbound messages and sends a one-line acknowledgement with no model calls.
 `beeper-bot` generates real replies with model calls and is for social and
-test chats, never for work conversations where replies must stay to
-acknowledgements.
+test chats; the one exception for work conversations is the gated
+`--policy acks` mode described below, which answers only bare
+acknowledgements and yes/no questions and escalates everything else.
 
 Transport: the script opens an SSH tunnel to the Beeper Desktop HTTP API on
 the Beeper host (loopback-only there) and reads push notifications over a
@@ -92,6 +93,38 @@ leaves a message held in a debounce batch unanswered for the NEXT run to
 re-read (nothing sent, nothing lost); a duration-expiry stop answers
 whatever is held before exiting (nothing lost either way).
 
+## `--policy acks` (work chats)
+
+```sh
+node skills/beeper-bot/scripts/beeper-bot.mjs --chat <id> --profile collab \
+  --policy acks --duration-min 10
+```
+
+`--policy acks` is the event-driven alternative to `beeper-collab` tick
+mode: the bot still uses the model, but only for safe replies. What it
+does:
+
+- Every new inbound message must classify as `ACK` (bare acknowledgement:
+  ok/thanks/noted/haan theek/…) or `YESNO` (a clear yes/no question). Mixed
+  batches require every message to pass. Anything else (`COMMITMENT`,
+  `REQUEST`, `OPEN_QUESTION`, `OTHER`) is written as one JSON line to the
+  escalation log —
+  `process.env.BEEPER_COLLAB_ESCALATIONS`
+  (default `~/.local/state/beeper-collab/escalations.jsonl`, ≤120 chars of
+  text per line) — marked processed, and never answered by the model.
+- Rate cap: at most 4 replies per rolling hour; further candidates are
+  denied (nothing sent) until the counter drains.
+- The model may reply `NO_REPLY` for unclear cases; that is treated as
+  intentional silence (logged, nothing sent).
+- Each final reply is re-checked by a collab guard (≤160 chars, ≤2 lines,
+  no links/deadline/money phrasing) before sending.
+- A disclosure footer (`This message was sent by an assistant.`) is
+  appended exactly once to every sent reply.
+
+Use the `collab` profile with it (the agent config maps to
+`opencode/glm-5.3-flash-free`; without `--policy` the other profiles keep
+their existing behaviour).
+
 ## Profiles
 
 Profiles ship in `skills/beeper-bot/profiles/` and are fixed for the life
@@ -101,6 +134,9 @@ of a run:
   denies infrastructure topics, admits being a bot if asked.
 - `assistant` — disclosed automated bot with longer plain replies; can
   paste real machine specs — only for explicitly authorised test chats.
+- `collab` — work-chat profile for `--policy acks`: facts limited to a
+  project brief, one line ≤160 chars, escalates everything that is not an
+  ack or a yes/no question.
 
 ## Safety rules
 
