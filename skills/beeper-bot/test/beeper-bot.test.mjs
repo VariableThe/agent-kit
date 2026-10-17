@@ -553,3 +553,131 @@ test("shipped opencode.json agent-system caps agree with profile maxWords/maxCha
     "casual agent system must agree with profile maxChars"
   );
 });
+
+// ---------------------------------------------------------------- --policy acks
+
+test("classifyInbound: acks, yes/no, open questions, commitments, requests", () => {
+  assert.equal(bot.classifyInbound("ok thanks"), "ACK");
+  assert.equal(bot.classifyInbound("haan theek hai"), "ACK");
+  assert.equal(bot.classifyInbound("👍"), "OTHER");
+  assert.equal(bot.classifyInbound("is the repo set up?"), "YESNO");
+  assert.equal(bot.classifyInbound("who is presenting next week?"), "OPEN_QUESTION");
+  assert.equal(bot.classifyInbound("finish your part by tomorrow"), "COMMITMENT");
+  assert.equal(bot.classifyInbound("share the link"), "REQUEST");
+  // Other cases pinning precedence from the beeper-collab rules.
+  assert.equal(bot.classifyInbound("can you send the file"), "REQUEST");
+  assert.equal(bot.classifyInbound("did you see it or not"), "YESNO");
+  assert.equal(bot.classifyInbound("done by 12/05"), "COMMITMENT");
+  assert.equal(bot.classifyInbound(""), "OTHER");
+});
+
+test("guardCollabReply: allowed for single ACK/YESNO classes", () => {
+  assert.deepEqual(
+    { allowed: bot.guardCollabReply("yep, repo is set up with 12 papers", "ACK", 0).allowed },
+    { allowed: true }
+  );
+  const yes = bot.guardCollabReply("yes, the reading plan is up", ["YESNO"], 3);
+  assert.equal(yes.allowed, true);
+  assert.equal(yes.reason, null);
+});
+
+test("guardCollabReply: denies mixed classes, URL, deadline phrasing, length, rate", () => {
+  assert.ok(!bot.guardCollabReply("ok", ["ACK", "COMMITMENT"], 0).allowed);
+  assert.ok(bot.guardCollabReply("ok", ["ACK", "COMMITMENT"], 0).reason.includes("not allowed"));
+  assert.ok(!bot.guardCollabReply("see http://x.example", ["ACK"], 0).allowed);
+  assert.ok(!bot.guardCollabReply("repo will be finished tomorrow for sure", ["ACK"], 0).allowed);
+  const long = "a".repeat(161);
+  assert.ok(!bot.guardCollabReply(long, ["ACK"], 0).allowed);
+  assert.ok(!bot.guardCollabReply("all good here", ["ACK"], 4).allowed);
+  // ACK+YESNO mixed batch is not exactly {ACK} or {YESNO} either: denied.
+  assert.ok(!bot.guardCollabReply("ok", ["ACK", "YESNO"], 0).allowed);
+});
+
+test("appendAssistantFooter: appended exactly once (idempotent)", () => {
+  const once = bot.appendAssistantFooter("yeah, done");
+  assert.equal(once, "yeah, done\n\nThis message was sent by an assistant.");
+  // Re-appending (idempotency guard) must not duplicate the footer.
+  const twice = bot.appendAssistantFooter(once);
+  assert.equal(twice, once);
+  // Trailing-punctuation footer variant is normalized too.
+  const weird = bot.appendAssistantFooter("hi\n\nthis message was sent by an assistant");
+  assert.equal(weird, "hi\n\nThis message was sent by an assistant.");
+});
+
+test("sendsLastHour rolling window counts only the last hour", () => {
+  bot.resetSendsLastHour();
+  const now = Date.now();
+  bot.recordSendTime(now - 4000_000); // stale: outside 1 hour
+  bot.recordSendTime(now);
+  bot.recordSendTime(now - 1000_000);
+  assert.equal(bot.sendsLastHour(now), 2);
+  assert.equal(bot.sendsLastHour(now), 2); // pure read: no new entries
+  bot.resetSendsLastHour();
+  assert.equal(bot.sendsLastHour(), 0);
+});
+
+test("collab profile loads with its capped collab config", () => {
+  const prof = bot.loadProfile("collab");
+  assert.equal(prof.agent, "collab-reply");
+  assert.equal(prof.promptStyle, "collab");
+  assert.equal(prof.maxChars, 160);
+  assert.equal(prof.maxWords, 30);
+  assert.equal(prof.contextWindow, 20);
+  assert.equal(prof.replyDebounceMs, 0);
+  assert.ok(prof.brief.includes("gait-based user authentication reading plan"));
+  // Collab deny patterns include the casual set plus the collab phrases.
+  for (const p of ["deadline", "tomorrow", "$"]) {
+    assert.ok(prof.denyPatterns.some((d) => String(d) === p), `missing deny pattern ${p}`);
+  }
+  // The collab prompt uses the brief and states NO_REPLY as a valid output.
+  bot.CHAT.name = "Test Group";
+  bot.CHAT.kind = "group chat";
+  const p = bot.buildPrompt([], { senderName: "Ali", senderID: "ali", text: "is the repo up?" }, prof);
+  assert.ok(p.includes("gait-based user authentication reading plan"));
+  assert.ok(p.includes("NO_REPLY"));
+  assert.ok(p.includes("160 chars"));
+});
+
+test("unknown --policy value exits 2 with a clear error", () => {
+  const r = runChild(["--chat", "401", "--policy", "nonsense", "--simulate", "Zed|hi"], {
+    BEEPER_BOT_STATE_DIR: tempStateDir(),
+    BEEPER_BOT_PROFILES_DIR: PROFILES,
+  });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown --policy/);
+  assert.match(r.stderr, /valid: acks/);
+});
+
+test("policy diagnose: simulate under --policy acks escalates disallowed text without a model call", () => {
+  const dir = tempStateDir();
+  const hist = path.join(dir, "hist.json");
+  fs.writeFileSync(
+    hist,
+    JSON.stringify([
+      { id: "9", senderName: "Zed", senderID: "zed", text: "older line", timestamp: "2026-10-16T00:00:00.000Z" },
+    ])
+  );
+  const esc = path.join(dir, "escalations.jsonl");
+  const r = runChild(
+    ["--chat", "401", "--profile", "collab", "--policy", "acks", "--simulate", "Amaan 1001|finish your part by tomorrow"],
+    {
+      BEEPER_BOT_STATE_DIR: dir,
+      BEEPER_BOT_PROFILES_DIR: PROFILES,
+      BEEPER_NOTIFY_HISTORY_JSON: hist,
+      BEEPER_COLLAB_ESCALATIONS: esc,
+      BEEPER_BOT_CRIT_FILE: path.join(dir, "crit.jsonl"),
+    }
+  );
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /POLICY ESCALATION/);
+  assert.match(r.stdout, /class=COMMITMENT/);
+  // One JSON line written to the escalation log, with the promised schema.
+  const lines = fs.readFileSync(esc, "utf8").trim().split("\n").filter(Boolean);
+  assert.equal(lines.length, 1);
+  const rec = JSON.parse(lines[0]);
+  assert.equal(rec.action, "escalated");
+  assert.equal(rec.chatID, "401");
+  assert.deepEqual(rec.classes, ["COMMITMENT"]);
+  assert.ok(rec.text.length <= 120);
+  assert.ok(!r.stdout.includes("--- RAW CLI STDOUT ---"), "no model call for escalated text");
+});
